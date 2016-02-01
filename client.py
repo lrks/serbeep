@@ -1,28 +1,29 @@
-import socket
-import time
+import paramiko
 
 if __name__ == '__main__':
 	host = [
-#		'10.11.36.215',
+		'10.11.36.215',
 		'10.11.36.225',
 		'10.11.38.163',
 		'10.11.36.222',
 		'10.11.36.219',
 	]
-	port = 25252
 
-	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM);
-	#for h in host:
-	#	sock.sendto("start", (h, port))
+	# Auth
+	ssh = {}
+	for h in host:
+		ssh[h] = paramiko.SSHClient()
+		ssh[h].set_missing_host_key_policy(paramiko.AutoAddPolicy())
+		ssh[h].connect(h, username='mrks', key_filename="/home/mrks/id_rsa")
+		print "Connected", h
 
-	for i in range(len(host)):
-		for h in host[:(i+1)]:
-			sock.sendto("start", (h, port))
-		time.sleep(1)
+	# Exec
+	for h in host:
+		print "Exec", h
+		ssh[h].exec_command("sudo bash /home/mrks/notice.sh")
 
-
-#	for i in range(len(host)):
-#		for h in host[:(i+1)]:
-#			sock.sendto("start", (h, port))
-#		time.sleep(1)
+	# Close
+	for h in host:
+		print "Close", h
+		ssh[h].close()
 
