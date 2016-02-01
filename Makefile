@@ -1,3 +1,3 @@
 all:
-	gcc bebebe.c
+	gcc serbeep.c
 

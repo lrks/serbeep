@@ -58,6 +58,14 @@ int recv_music(int sock, char *buf, int buf_len)
 
 int create_udp(char *buf, int buf_len)
 {
+	return 0;
+}
+
+
+int main(int argc, char *argv[])
+{
+	// UDPソケット作成
+	char buf[256];
 	int udp = socket(AF_INET, SOCK_DGRAM, 0);
 
 	struct sockaddr_in udp_addr;
@@ -67,49 +75,30 @@ int create_udp(char *buf, int buf_len)
 
 	bind(udp, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
 
-	memset(buf, 0, buf_len);
-	recv(udp, buf, buf_len-1, 0);
-	printf("%s\n", buf);
-
-	close(udp);
-}
-
-
-int main(int argc, char *argv[])
-{
-	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
-
-	struct sockaddr_in addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(PORT);
-	addr.sin_addr.s_addr = INADDR_ANY;	// 0.0.0.0 ?
-
-	int val = 1;
-	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, (const char *)&val, sizeof(val));
-	bind(sock0, (struct sockaddr *)&addr, sizeof(addr));
-	listen(sock0, 5);	// 5...?
-
 	while (1) {
-		int fd = open("/dev/console", O_WRONLY);
+		while (1) {
+			memset(buf, 0, 256);
+			recv(udp, buf, 256-1, 0);
 
-		struct sockaddr_in client;
-		int len = sizeof(client);
-		int sock = accept(sock0, (struct sockaddr *)&client, &len);
+			printf("Recv: %s\n", buf);
+			if (strcmp("start", buf) == 0) break;
+		}
 
-		// 曲データ受信
-		char buf[256];
-		recv_music(sock, buf, 256);
+		// 演奏
+		int i, fd = open("/dev/console", O_WRONLY);
 
-		// UDPソケットを作る
-		create_udp(buf, 256);
-
-		// あと適当に
-		send(sock, "Hello\n", 6, 0);
-		close(sock);
+		/*
+		int freq[] = { 523, 587, 659, 698, 784, 880, 988, 1046 };
+		for (i=0; i<3; i++) {
+			beep(fd, freq[i], 100);
+			msleep(100);
+		}
+		*/
+		beep(fd, 440, 100);
 		close(fd);
 	}
 
-	close(sock0);
+	close(udp);
 	return 0;
 }
 
