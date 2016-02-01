@@ -1,3 +1,3 @@
 all:
-	gcc serbeep.c
+	gcc serbeep-tcp.c
 
