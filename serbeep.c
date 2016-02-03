@@ -31,7 +31,15 @@ int main(int argc, char *argv[])
 		}
 
 		// 演奏
-		execl("/bin/bash", "/bin/bash", "/home/mrks/notice.sh");
+		pid_t pid = fork();
+		if (pid == 0) {
+			// 子プロセス
+			execlp("bash", "bash", "/home/mrks/music.sh", NULL);
+			return 0;
+		}
+
+		int status;
+		pid_t r = waitpid(pid, &status, 0);
 	}
 
 	close(udp);
