@@ -38,7 +38,7 @@ if __name__ == '__main__':
 	for (idx, h) in enumerate(host):
 		ssh[h] = paramiko.SSHClient()
 		ssh[h].set_missing_host_key_policy(paramiko.AutoAddPolicy())
-		ssh[h].connect(h, username='mrks', key_filename="/home/mrks/id_rsa")
+		ssh[h].connect(h, username='mrks', key_filename="/home/mrks/.ssh/id_rsa")
 
 		sftp = ssh[h].open_sftp()
 		sftp.put('/home/mrks/notice.sh', '/home/mrks/music.sh')
