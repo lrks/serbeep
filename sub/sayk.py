@@ -43,6 +43,24 @@ def sleepsleep(f):
 		print '%d %f' % (line, float(l.split('<')[1][:-2]) - float(tv_sec + '.' + tv_nsec))
 		line += 1
 
+def script(f):
+	string = 'beep'
+	first_beep = False
+
+	for l in f:
+		if 'beep' in l: first_beep = True
+		if not first_beep: continue
+
+		if 'beep' in l:
+			string += ' ' + l[5:].strip()
+		elif 'sleep' in l:
+			string += ' -D %f -n' % (float(l[6:].strip()) * 1000)
+		else:
+			continue
+
+	print '#!/bin/bash'
+	print string
+
 
 if __name__ == '__main__':
 	f = open(sys.argv[1], 'r')
@@ -50,5 +68,7 @@ if __name__ == '__main__':
 		launch_time(f)
 	elif sys.argv[2] == 'sleep':
 		sleepsleep(f)
+	elif sys.argv[2] == 'script':
+		script(f)
 	f.close()
 
