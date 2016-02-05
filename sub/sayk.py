@@ -61,6 +61,38 @@ def script(f):
 	print '#!/bin/bash'
 	print string
 
+def toption(f):
+	ioctl_einval_time = []
+	ioctl_beepon_time = []
+	ioctl_beepoff_time = []
+	open_time = []
+	close_time = []
+	devtty = False
+
+	r = re.compile("<([0-9.]*?)>")
+	for l in f:
+		m = r.search(l)
+		if m is None: continue
+		t = float(m.group(1))
+
+		if 'ioctl' in l:
+			if 'EINVAL' in l:
+				ioctl_einval_time.append(t)
+			elif 'ioctl(3, KIOCSOUND, 0)' in l:
+				ioctl_beepoff_time.append(t)
+			else:
+				ioctl_beepon_time.append(t)
+		elif 'open("/dev/tty0", O_WRONLY)' in l and '= 3' in l:
+			open_time.append(t)
+			devtty = True
+		elif devtty and 'close(3)' in l:
+			close_time.append(t)
+			devtty = False
+
+	print 'open, ioctl(EVIOCGSND(0)), ioctl(BeepOn), ioctl(BeepOff), close'
+	for (a, b, c, d, e) in zip(open_time, ioctl_einval_time, ioctl_beepon_time, ioctl_beepoff_time, close_time):
+		print '%f, %f, %f, %f, %f' % (a, b, c, d, e)
+
 
 if __name__ == '__main__':
 	f = open(sys.argv[1], 'r')
@@ -70,5 +102,7 @@ if __name__ == '__main__':
 		sleepsleep(f)
 	elif sys.argv[2] == 'script':
 		script(f)
+	elif sys.argv[2] == 'toption':
+		toption(f)
 	f.close()
 

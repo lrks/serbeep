@@ -13,7 +13,7 @@ def udp_mode(ssh):
 		sftp = s.open_sftp()
 		sftp.put('/home/mrks/serbeep/a.out', '/home/mrks/a.out')
 		sftp.close()
-		s.exec_command("chmd +x /home/mrks/a.out")
+		s.exec_command("chmod +x /home/mrks/a.out")
 		s.exec_command("sudo /home/mrks/a.out")
 
 	time.sleep(1)
@@ -24,7 +24,7 @@ def udp_mode(ssh):
 if __name__ == '__main__':
 	host = [
 		'10.11.36.225',	#2
-		'10.11.37.123',	#3
+#		'10.11.38.199',	#3
 		'10.11.36.222',	#4
 	]
 
@@ -41,11 +41,11 @@ if __name__ == '__main__':
 		ssh[h].connect(h, username='mrks', key_filename="/home/mrks/.ssh/id_rsa")
 
 		sftp = ssh[h].open_sftp()
-		sftp.put('/home/mrks/notice.sh', '/home/mrks/music.sh')
+		sftp.put('/home/mrks/one.sh', '/home/mrks/music.sh')
 		sftp.close()
 
 		ssh[h].exec_command('chmod +x /home/mrks/music.sh')
-		for i in range(idx * 5):
+		for i in range(idx * 10):
 			ssh[h].exec_command('yes > /dev/null &')
 
 
@@ -62,6 +62,7 @@ if __name__ == '__main__':
 	for s in ssh.values():
 		s.exec_command('sudo killall a.out')
 		s.exec_command('sudo killall music.sh')
+		s.exec_command('sudo killall beep')
 		s.exec_command('sudo kill `ps aux | grep \'music.sh\' | head -n1 | awk \'{print $2}\'`')
 		s.exec_command('killall yes')
 

@@ -25,3 +25,33 @@ par(new=T)
 plot(x2,ylim=c(0, 0.004), col="blue")
 graphics.off()
 
+x1 <- read.csv('syscall-noload.dat', header=T) * 1000 * 1000
+x2 <- read.csv('syscall-load.dat', header=T) * 1000 * 1000
+
+s = min(x1, x2)
+e = max(x1, x2)
+
+png('test.png')
+stripchart(x1, pch=1, col="red", ylim=c(s, e), vert=T, ylab="micro sec")
+par(new=T)
+stripchart(x2, pch=1, col="blue", ylim=c(s, e), vert=T, ylab="micro sec")
+legend("topleft", legend=c("noload", "load"), col=c("red", "blue"), pch = 1)
+title("strace -T")
+graphics.off()
+
+
+
+x1 <- read.table('noload-tboff.dat')
+x2 <- read.table('load-tboff.dat')
+
+s = min(x1[2:2], x2[2:2])
+e = max(x1[2:2], x2[2:2])
+
+png('majika.png')
+plot(x1, col="red", ylim=c(s, e), xlab="Line number", ylab="sec")
+par(new=T)
+plot(x2, col="blue", ylim=c(s, e), xlab="Line number", ylab="sec")
+legend("topleft", legend=c("noload", "load"), col=c("red", "blue"), pch = 1)
+title("exec -> ioctl/nanosleep (TurboBoost off)")
+graphics.off()
+
