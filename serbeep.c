@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
 	int i;
-	for (i=0 i<length; i++) {
+	for (i=0; i<length; i++) {
 		Music *p = &music[i];
 
 		end.tv_sec += p->sec;
