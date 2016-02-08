@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <math.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
 
 #define	NANONANO	1000000000
 #define CLOCK_TICK_RATE 1193180
@@ -31,17 +33,22 @@ typedef struct _music {
    * flag は 1bit、MIDI-NoteNo は MIDI規格をそのまま利用(7bit)
    * Length == 0 が終端
      * Duration は存在しない
-	 * flag | MIDI-NoteNo や その前の Duration の値は利用していない
-	 * 2 ~ 3 Bytes が無駄になる
+     * [flag | MIDI-NoteNo] や その前の Duration の値は利用していない
+     * 2 ~ 3 Bytes は無駄になる
    * 65535[ms] より大きい値は 65535[ms] になる
 */
-int recvMusic(int sock, Music *dst)
+Music *recvMusic(int sock, Music *dst, int *size)
 {
 	uint8_t *p, byte;
 	uint16_t beep_time, sleep_time;
 	int width, idx = 0, length = 0;
 
-	while (read(sock, &byte, 1) > 0) {
+	while (read(sock, &byte, 1) > 0) {	// これ 1byte ずつ読んだら遅いんじゃ...
+		if (length >= *size) {
+			*size *= 2;
+			dst = (Music *)realloc(dst, sizeof(Music) * *size);
+		}
+
 		// Note
 		if (idx == 0) {
 			width = ((byte & 0x80) == 0x80) ? 2 : 1;
@@ -66,7 +73,10 @@ int recvMusic(int sock, Music *dst)
 			}
 
 			if (idx++ != (width * 1)) continue;
-			if (beep_time == 0) return (length - 1);
+			if (beep_time == 0) {
+				*size = length - 1;
+				return dst;
+			}
 			sec = (double)ntohs(beep_time) / (double)1000;
 		}
 
@@ -92,6 +102,8 @@ int recvMusic(int sock, Music *dst)
 		dst[length].nsec = (long)((sec - dst[length].sec) * NANONANO);
 		length++;
 	}
+
+	return NULL;
 }
 
 /*
@@ -137,19 +149,19 @@ int playMusic(int fd, Music *music, int length)
 			}
 		}
 	}
+
+	return 0;
 }
 
 
 int main(int argc, char *argv[])
 {
-	Music music[512];
-
 	/* Recv */
+	int length = 256;
+	Music *p = (Music *)malloc(sizeof(Music) * length);
 	int sock = open("music.bin", O_RDONLY);
-	int length = recvMusic(sock, music);
+	p = recvMusic(sock, p, &length);
 	close(sock);
-
-	printf("len = %d\n", length);
 
 
 	/* Pre-process */
@@ -159,11 +171,13 @@ int main(int argc, char *argv[])
 
 
 	/* Play */
-	playMusic(fd, music, length);
+	playMusic(fd, p, length);
 
 
 	/* Post-process */
 	close(fd);
+	free(p);
+
 	return 0;
 }
 

@@ -1,3 +1,3 @@
 all:
-	gcc serbeep.c -lrt -lm
+	gcc serbeep.c -lrt -lm -Wall
 
