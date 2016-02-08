@@ -1,5 +1,7 @@
 import sys
 import re
+import math
+import struct
 
 def getsec(string):
 	s = string.split(':')
@@ -94,7 +96,7 @@ def toption(f):
 		print '%f, %f, %f, %f, %f' % (a, b, c, d, e)
 
 
-def struct(f):
+def cstruct(f):
 	string = 'beep'
 	first_beep = False
 
@@ -126,6 +128,69 @@ def struct(f):
 	print "length = %d;" % idx
 
 
+def binary(f):
+	string = 'beep'
+	first_beep = False
+
+	idx = 0
+	lst = []
+	before = 'sleep'
+	for l in f:
+		if 'beep' in l: first_beep = True
+		if not first_beep: continue
+
+		time = note = None
+		if 'beep' in l:
+			tmp = l[5:].split()
+			time = float(tmp[3])
+			freq = int(tmp[1])
+			note = int(12 * math.log(float(freq) / 440.0, 2) + 69)
+			if note < 0:
+				note = 0
+			if note > 127:
+				note = 127
+		elif 'sleep' in l:
+			time = float(l[6:].strip()) * 1000
+		else:
+			continue
+
+		if (note is None) == (before == 'sleep'):
+			print "ERROR"
+			exit()
+
+		if time < 0:
+			time = 0
+		elif time > 65535:
+			time = 65535
+
+		if note is not None:
+			before = 'beep'
+			lst.append([note, time])
+		else:
+			before = 'sleep'
+			lst[idx].append(time)
+			idx += 1
+
+	b = open('music.bin', 'wb')
+	for l in lst:
+		beep = int(l[1])
+		sleep = 0 if len(l) == 2 else int(l[2])
+		note = int(l[0])
+		flag = 0x80 if beep > 255 or sleep > 255 else 0x0
+		frmt = '>B' if flag == 0x0 else '>H'
+
+		b.write(struct.pack('>B', note | flag))
+		b.write(struct.pack(frmt, beep))
+		b.write(struct.pack(frmt, sleep))
+		b.flush()
+
+
+	b.write(struct.pack('>B', 0))
+	b.write(struct.pack('>B', 0))
+
+	b.close()
+
+
 if __name__ == '__main__':
 	f = open(sys.argv[1], 'r')
 
@@ -138,7 +203,9 @@ if __name__ == '__main__':
 	elif sys.argv[2] == 'toption':
 		toption(f)
 	elif sys.argv[2] == 'struct':
-		struct(f)
+		cstruct(f)
+	elif sys.argv[2] == 'binary':
+		binary(f)
 
 	f.close()
 

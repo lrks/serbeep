@@ -5,29 +5,100 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <linux/kd.h>
+#include <stdint.h>
+#include <arpa/inet.h>
+#include <math.h>
 
 #define	NANONANO	1000000000
+#define CLOCK_TICK_RATE 1193180
 
 typedef struct _music {
 	int val;
 	time_t sec;
 	long nsec;
-	struct _music *next;
 } Music;
 
-int main(int argc, char *argv[])
+/*
+   独自プロトコルに沿って送られてきた楽譜を構造体に変換する
+
+            1 byte            N byte(s)       N byte(s)
+   +----------------------+--------------+----------------+
+   |  flag | MIDI-NoteNo  |  Length[ms]  |  Duration[ms]  |
+   +----------------------+--------------+----------------+
+               flag = (Length > 0xff) or (Duration > 0xff);
+                                          N = flag ? 2 : 1;
+
+   * flag は 1bit、MIDI-NoteNo は MIDI規格をそのまま利用(7bit)
+   * Length == 0 が終端
+     * Duration は存在しない
+	 * flag | MIDI-NoteNo や その前の Duration の値は利用していない
+	 * 2 ~ 3 Bytes が無駄になる
+   * 65535[ms] より大きい値は 65535[ms] になる
+*/
+int recvMusic(int sock, Music *dst)
 {
-	int length;
-	Music music[512];
-	#include "music.dat"
+	uint8_t *p, byte;
+	uint16_t beep_time, sleep_time;
+	int width, idx = 0, length = 0;
 
-	int fd = open("/dev/tty0", O_WRONLY);
+	while (read(sock, &byte, 1) > 0) {
+		// Note
+		if (idx == 0) {
+			width = ((byte & 0x80) == 0x80) ? 2 : 1;
+			double freq = 440 * pow(2, (double)((byte & 0x7f) - 69) / (double)12);
 
-	printf("START> ");
-	getchar();
+			idx++;
+			dst[length].val = (int)(CLOCK_TICK_RATE / freq);
+			continue;
+		}
 
-	Music *p = &music[0];
+		// Beep time
+		double sec = 0;
+		int type = (idx - 1) / width;
+		if (type == 0) {
+			p = (uint8_t *)&beep_time;
 
+			if (width == 1) {
+				p[0] = 0x0;
+				p[1] = byte;
+			} else {
+				p[idx - 1] = byte;
+			}
+
+			if (idx++ != (width * 1)) continue;
+			if (beep_time == 0) return (length - 1);
+			sec = (double)ntohs(beep_time) / (double)1000;
+		}
+
+		// Sleep time
+		if (type == 1) {
+			p = (uint8_t *)&sleep_time;
+
+			if (width == 1) {
+				p[0] = 0x0;
+				p[1] = byte;
+			} else {
+				p[idx - 3] = byte;
+			}
+
+			if (idx++ != (width * 2)) continue;
+
+			idx = 0;
+			dst[length].val = 0;
+			sec = (double)ntohs(sleep_time) / (double)1000;
+		}
+
+		dst[length].sec = (time_t)sec;
+		dst[length].nsec = (long)((sec - dst[length].sec) * NANONANO);
+		length++;
+	}
+}
+
+/*
+   構造体のデータを演奏する
+*/
+int playMusic(int fd, Music *music, int length)
+{
 	struct timespec end;
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
@@ -66,7 +137,32 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
+}
 
+
+int main(int argc, char *argv[])
+{
+	Music music[512];
+
+	/* Recv */
+	int sock = open("music.bin", O_RDONLY);
+	int length = recvMusic(sock, music);
+	close(sock);
+
+	printf("len = %d\n", length);
+
+
+	/* Pre-process */
+	int fd = open("/dev/tty0", O_WRONLY);
+	printf("START> ");
+	getchar();
+
+
+	/* Play */
+	playMusic(fd, music, length);
+
+
+	/* Post-process */
 	close(fd);
 	return 0;
 }
