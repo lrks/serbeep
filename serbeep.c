@@ -1,48 +1,73 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <linux/kd.h>
 
-// define
-#define	PORT	25252
+#define	NANONANO	1000000000
+
+typedef struct _music {
+	int val;
+	time_t sec;
+	long nsec;
+	struct _music *next;
+} Music;
 
 int main(int argc, char *argv[])
 {
-	// UDP
-	char buf[256];
-	int udp = socket(AF_INET, SOCK_DGRAM, 0);
+	int length;
+	Music music[512];
+	#include "music.dat"
 
-	struct sockaddr_in udp_addr;
-	udp_addr.sin_family = AF_INET;
-	udp_addr.sin_port = htons(PORT);
-	udp_addr.sin_addr.s_addr= INADDR_ANY;
+	int fd = open("/dev/tty0", O_WRONLY);
 
-	bind(udp, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
+	printf("START> ");
+	getchar();
 
-	while (1) {
-		while (1) {
-			memset(buf, 0, 256);
-			recv(udp, buf, 256-1, 0);
+	Music *p = &music[0];
 
-			printf("Recv: %s\n", buf);
-			if (strcmp("start", buf) == 0) break;
+	struct timespec end;
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+
+	int i;
+	for (i=0 i<length; i++) {
+		Music *p = &music[i];
+
+		end.tv_sec += p->sec;
+		end.tv_nsec += p->nsec;
+		end.tv_sec += end.tv_nsec / NANONANO;
+		end.tv_nsec = end.tv_nsec % NANONANO;
+
+		struct timespec now, req;
+		clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+		req.tv_sec = end.tv_sec - now.tv_sec;
+		req.tv_nsec = end.tv_nsec - now.tv_nsec;
+
+		while (req.tv_nsec < 0) {
+			req.tv_sec--;
+			req.tv_nsec += NANONANO;
 		}
 
-		// 演奏
-		pid_t pid = fork();
-		if (pid == 0) {
-			// 子プロセス
-			execlp("bash", "bash", "/home/mrks/music.sh", NULL);
-			return 0;
-		}
+		double a = p->sec + ((double)p->nsec / (double)NANONANO);
+		double b = req.tv_sec + ((double)req.tv_nsec / (double)NANONANO);
 
-		int status;
-		pid_t r = waitpid(pid, &status, 0);
+		printf("%f\t%f\t%f\n", a, b, (a - b) * 1000);
+
+		if (req.tv_sec >= 0) {
+			if (p->val != 0) {
+				ioctl(fd, KIOCSOUND, p->val);
+				nanosleep(&req, NULL);
+				ioctl(fd, KIOCSOUND, 0);
+			} else {
+				nanosleep(&req, NULL);
+			}
+		}
 	}
 
-	close(udp);
+	close(fd);
 	return 0;
 }
 

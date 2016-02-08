@@ -94,8 +94,41 @@ def toption(f):
 		print '%f, %f, %f, %f, %f' % (a, b, c, d, e)
 
 
+def struct(f):
+	string = 'beep'
+	first_beep = False
+
+	idx = 0
+	for l in f:
+		if 'beep' in l: first_beep = True
+		if not first_beep: continue
+
+		val = sec = nsec = None
+		if 'beep' in l:
+			tmp = l[5:].split()
+			time = float(tmp[3]) / 1000
+			val = int(1193180 / float(tmp[1]))
+		elif 'sleep' in l:
+			time = float(l[6:].strip())
+			val = 0
+		else:
+			continue
+
+		sec = int(time)
+		nsec = int((time - sec) * (10 ** 9))
+
+		print ""
+		print "music[%d].val = %d;" % (idx, val)
+		print "music[%d].sec = %d;" % (idx, sec)
+		print "music[%d].nsec = %d;" % (idx, nsec)
+
+		idx += 1
+	print "length = %d;" % idx
+
+
 if __name__ == '__main__':
 	f = open(sys.argv[1], 'r')
+
 	if sys.argv[2] == 'launch':
 		launch_time(f)
 	elif sys.argv[2] == 'sleep':
@@ -104,5 +137,8 @@ if __name__ == '__main__':
 		script(f)
 	elif sys.argv[2] == 'toption':
 		toption(f)
+	elif sys.argv[2] == 'struct':
+		struct(f)
+
 	f.close()
 
