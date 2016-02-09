@@ -34,7 +34,6 @@ struct serbeep_score_note {
 	uint16_t duration;
 };
 
-
 /* beep */
 void goodSleep(struct timespec *end, uint16_t ms)
 {
@@ -96,7 +95,7 @@ void playNotes(int fd, struct serbeep_score_note *notes, int length)
 }
 
 
-/* TCP */
+/* Socket */
 int readStruct(int sock, void *struct_pointer, size_t size)
 {
 	size_t n = 0;
@@ -143,6 +142,52 @@ int writeStruct(int sock, void *struct_pointer, size_t size)
 	return 1;
 }
 
+int tcpHandler(int sock, struct serbeep_score_header *score_header, struct serbeep_score_note **score_notes)
+{
+	int flg;
+
+	// Header
+	struct serbeep_header header;
+	flg = readStruct(sock, &header, sizeof(header));
+	if (flg != 1) return 1;
+	if (header.magic != MAGIC) {
+		fprintf(stderr, "Invalid magic\n");
+		return 1;
+	}
+
+	// clientHello
+	if ((header.cmd & 0x1) == 0x1) {
+		// serverHello
+		header.cmd = 0x2;
+		flg = writeStruct(sock, &header, sizeof(header));
+		if (flg != 1) return 1;
+	}
+
+	// musicScore
+	if ((header.cmd & 0x4) == 0x4) {
+		flg = readStruct(sock, score_header, sizeof(*score_header));
+		if (flg != 1) return 1;
+
+		score_header->length = ntohs(score_header->length);
+		size_t size = sizeof(struct serbeep_score_note) * score_header->length;
+		*score_notes = (struct serbeep_score_note *)malloc(size);
+		if (*score_notes == NULL) {
+			fprintf(stderr, "fail...malloc(%zd bytes)\n", size);
+			return 1;
+		}
+
+		flg = readStruct(sock, *score_notes, size);
+		if (flg != 1) return 2;
+
+		// musicAck
+		header.cmd = 0x8;
+		flg = writeStruct(sock, &header, sizeof(header));
+		if (flg != 1) return 2;
+	}
+
+	return 0;	// Success
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -150,10 +195,17 @@ int main(int argc, char *argv[])
 	struct serbeep_score_header score_header;
 	struct serbeep_score_note *score_notes;
 
-	// TCP
-	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
+	// UDP
+	struct sockaddr_in udp_addr;
+	int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+	udp_addr.sin_family = AF_INET;
+	udp_addr.sin_port = htons(PORT);
+	udp_addr.sin_addr.s_addr = INADDR_ANY;
+	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
 
+	// TCP
 	struct sockaddr_in addr;
+	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(PORT);
 	addr.sin_addr.s_addr = INADDR_ANY;
@@ -166,56 +218,15 @@ int main(int argc, char *argv[])
 	while (1) {
 		struct sockaddr_in client;
 		socklen_t socklen = sizeof(client);
-		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);
+		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// 直しまくる
 
-	read_header:;
-		// Read header
-		struct serbeep_header header;
-		int flg = readStruct(sock, &header, sizeof(struct serbeep_header));
-		if (flg != 1) goto next;
-		if (header.magic != MAGIC) {
-			fprintf(stderr, "Invalid magic\n");
-			goto next;
+		while (1) {
+			int flg = tcpHandler(sock, &score_header, &score_notes);
+			if (flg == 0) continue;
+			if (flg == 2) free(score_notes);
+			break;
 		}
 
-		// clientHello
-		if ((header.cmd & 0x1) == 0x1) {
-			// serverHello
-			header.cmd = 0x2;
-			flg = writeStruct(sock, &header, sizeof(header));
-			if (flg != 1) goto next;
-		}
-
-		// musicScore
-		if ((header.cmd & 0x4) == 0x4) {
-			flg = readStruct(sock, &score_header, sizeof(score_header));
-			if (flg != 1) goto next;
-
-			score_header.length = ntohs(score_header.length);
-			size_t size = sizeof(struct serbeep_score_note) * score_header.length;
-			score_notes = (struct serbeep_score_note *)malloc(size);
-			if (score_notes == NULL) {
-				fprintf(stderr, "fail...malloc(%zd bytes)\n", size);
-				goto next;
-			}
-
-			flg = readStruct(sock, score_notes, size);
-			if (flg != 1) {
-				free(score_notes);
-				goto next;
-			}
-
-			// musicAck
-			header.cmd = 0x8;
-			flg = writeStruct(sock, &header, sizeof(header));
-			if (flg != 1) {
-				free(score_notes);
-				goto next;
-			}
-		}
-
-		goto read_header;
-	next:
 		close(sock);
 		break;	// imadake
 	}
@@ -224,12 +235,14 @@ int main(int argc, char *argv[])
 
 	// Beep
 	int fd = open("/dev/tty0", O_WRONLY);
+	//readStruct(udp_sock,
 	printf("START> ");
 	getchar();
 
 	playNotes(fd, score_notes, (int)score_header.length);
 
 	close(fd);
+	free(score_notes);	// 気を付ける、二重free、NULLいれておく
 	return 0;
 }
 

@@ -121,25 +121,37 @@ def musicAck(sock):
 	return flg
 
 if __name__ == '__main__':
-	host = 'localhost'
+	hosts = [
+		'10.11.36.225',
+		'10.11.38.219',
+		'10.11.36.222',
+	]
 	port = 25252
 
-	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	sock.connect((host, port))
+	for host in hosts:
+		print "Host", host
+		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		sock.connect((host, port))
 
-	# Hello
-	assert clientHello(sock), "clientHello Error"
-	assert serverHello(sock), "serverHello Error"
+		# Hello
+		assert clientHello(sock), "clientHello Error"
+		assert serverHello(sock), "serverHello Error"
 
-	# Music
-	filename = "/home/mrks/koka.mid"
-	track = None
+		# Music
+		filename = "/home/mrks/koka.mid"
+		track = None
 
-	mid = mido.MidiFile(filename)
-	tmp = removeJam(mid, track)
-	assert musicScore(sock, mid), "musicScore Error"
-	assert musicAck(sock), "musicAck Error"
+		mid = mido.MidiFile(filename)
+		tmp = removeJam(mid, track)
+		assert musicScore(sock, mid), "musicScore Error"
+		assert musicAck(sock), "musicAck Error"
+
+		print ""
+		sock.close()
+
+	#for host in hosts:
 
 
-	sock.close()
+
+
 
