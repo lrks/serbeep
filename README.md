@@ -1,1 +1,3 @@
 # serbeep
+* `pip install mido`
+
