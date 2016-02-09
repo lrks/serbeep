@@ -158,14 +158,11 @@ int writeStruct(int sock, void *struct_pointer, size_t size)
 	return 1;
 }
 
-int tcpHandler(int sock)
+int msgHandler(int sock)
 {
-	int flg;
-
 	// Header
 	struct serbeep_header header;
-	flg = readStruct(sock, &header, sizeof(header));
-	if (flg != 1) return 1;
+	if (readStruct(sock, &header, sizeof(header)) != 1) return 1;
 	if (header.magic != MAGIC) {
 		fprintf(stderr, "Invalid magic\n");
 		return 1;
@@ -175,17 +172,13 @@ int tcpHandler(int sock)
 	if ((header.cmd & 0x1) == 0x1) {
 		// serverHello
 		header.cmd = 0x2;
-		flg = writeStruct(sock, &header, sizeof(header));
-		if (flg != 1) return 1;
+		if (writeStruct(sock, &header, sizeof(header)) != 1) return 1;
 	}
 
 	// musicScore
 	if ((header.cmd & 0x4) == 0x4) {
-		flg = pthread_mutex_trylock(&global_score_mutex);
-		if (flg != 0) return 1;
-
-		flg = readStruct(sock, &global_score_header, sizeof(global_score_header));
-		if (flg != 1) {
+		if (pthread_mutex_trylock(&global_score_mutex) != 0) return 1;
+		if (readStruct(sock, &global_score_header, sizeof(global_score_header)) != 1) {
 			pthread_mutex_unlock(&global_score_mutex);
 			return 1;
 		}
@@ -199,8 +192,7 @@ int tcpHandler(int sock)
 			return 1;
 		}
 
-		flg = readStruct(sock, global_score_notes, size);
-		if (flg != 1) {
+		if (readStruct(sock, global_score_notes, size) != 1) {
 			freeNull(global_score_notes);
 			pthread_mutex_unlock(&global_score_mutex);
 			return 1;
@@ -208,8 +200,7 @@ int tcpHandler(int sock)
 
 		// musicAck
 		header.cmd = 0x8;
-		flg = writeStruct(sock, &header, sizeof(header));
-		if (flg != 1) {
+		if (writeStruct(sock, &header, sizeof(header)) != 1) {
 			freeNull(global_score_notes);
 			pthread_mutex_unlock(&global_score_mutex);
 			return 1;
@@ -242,12 +233,10 @@ void tcpListener(void *args)
 		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// 直しまくる
 
 		while (1) {
-			int flg = tcpHandler(sock);
-			if (flg == 1) break;
+			if (msgHandler(sock) == 1) break;
 		}
 
 		close(sock);
-		break;	// imadake
 	}
 }
 
@@ -261,12 +250,15 @@ void udpListener(void *args)
 	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
 
 	pthread_t play_thread;
-	printf("START> ");
-	getchar();
 
-	if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)NULL) != 0 || pthread_join(play_thread, NULL) != 0) {
-		perror("Play Thread");
-		return;	// 直す
+	while (1) {
+		printf("START> ");
+		getchar();
+
+		if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)NULL) != 0 || pthread_join(play_thread, NULL) != 0) {
+			perror("Play Thread");
+			return;	// 直す
+		}
 	}
 }
 
@@ -275,14 +267,24 @@ int main(int argc, char *argv[])
 {
 	// Thread
 	pthread_t tcp_thread;
-	if (pthread_create(&tcp_thread, NULL, (void *)tcpListener, (void *)NULL) != 0 || pthread_join(tcp_thread, NULL) != 0) {
+	if (pthread_create(&tcp_thread, NULL, (void *)tcpListener, (void *)NULL) != 0) {
 		perror("TCP Thread");
 		return EXIT_FAILURE;
 	}
 
 	pthread_t udp_thread;
-	if (pthread_create(&udp_thread, NULL, (void *)udpListener, (void *)NULL) != 0 || pthread_join(udp_thread, NULL) != 0) {
+	if (pthread_create(&udp_thread, NULL, (void *)udpListener, (void *)NULL) != 0) {
 		perror("UDP Thread");
+		return EXIT_FAILURE;
+	}
+
+	if (pthread_join(tcp_thread, NULL) != 0) {
+		perror("TCP Thread join");
+		return EXIT_FAILURE;
+	}
+
+	if (pthread_join(udp_thread, NULL) != 0) {
+		perror("UDP Thread join");
 		return EXIT_FAILURE;
 	}
 
