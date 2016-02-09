@@ -39,7 +39,7 @@ void goodSleep(struct timespec *end, uint16_t ms)
 {
 	double time = (double)ms / (double)1000;
 
-	time_t sec = (time_t)sec;
+	time_t sec = (time_t)time;
 	long nsec = (long)((time - sec) * NANONANO);
 
 	end->tv_sec += sec;
@@ -59,10 +59,6 @@ void goodSleep(struct timespec *end, uint16_t ms)
 	}
 
 	if (req.tv_sec < 0) return;
-
-	double a = time;
-	double b = req.tv_sec + ((double)req.tv_nsec / (double)NANONANO);
-	printf("ERR: %f[ms]\n", (a - b) * 1000);
 	nanosleep(&req, NULL);
 }
 
@@ -75,7 +71,7 @@ void playNotes(int fd, struct serbeep_score_note *notes, int length)
 	for (i=0; i<length; i++) {
 		uint16_t number = ntohs(notes[i].number);
 		uint16_t beep_time = ntohs(notes[i].length);
-		uint16_t sleep_time = ntohs(notes[i].length);
+		uint16_t sleep_time = ntohs(notes[i].duration);
 
 		// Beep
 		if (beep_time != 0) {
