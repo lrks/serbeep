@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <pthread.h>
 
 #define	MAGIC	'\a'
 #define	PORT	25252
@@ -33,6 +34,17 @@ struct serbeep_score_note {
 	uint16_t length;
 	uint16_t duration;
 };
+
+
+/* global */
+struct serbeep_score_header global_score_header;
+struct serbeep_score_note *global_score_notes = NULL;
+pthread_mutex_t global_score_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+/* utility */
+#define	freeNull(ptr)	free(ptr);ptr = NULL;
+
 
 /* beep */
 void goodSleep(struct timespec *end, uint16_t ms)
@@ -62,11 +74,15 @@ void goodSleep(struct timespec *end, uint16_t ms)
 	nanosleep(&req, NULL);
 }
 
-void playNotes(int fd, struct serbeep_score_note *notes, int length)
+void playNotes(void *args)
 {
-	int i;
 	struct timespec end;
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+
+	if (pthread_mutex_trylock(&global_score_mutex) != 0) return;
+	int i, fd = open("/dev/tty0", O_WRONLY);
+	int length = (int)global_score_header.length;
+	struct serbeep_score_note *notes = global_score_notes;
 
 	for (i=0; i<length; i++) {
 		uint16_t number = ntohs(notes[i].number);
@@ -88,6 +104,10 @@ void playNotes(int fd, struct serbeep_score_note *notes, int length)
 			goodSleep(&end, sleep_time);
 		}
 	}
+
+	freeNull(global_score_notes);
+	pthread_mutex_unlock(&global_score_mutex);
+	close(fd);
 }
 
 
@@ -138,7 +158,7 @@ int writeStruct(int sock, void *struct_pointer, size_t size)
 	return 1;
 }
 
-int tcpHandler(int sock, struct serbeep_score_header *score_header, struct serbeep_score_note **score_notes)
+int tcpHandler(int sock)
 {
 	int flg;
 
@@ -161,45 +181,50 @@ int tcpHandler(int sock, struct serbeep_score_header *score_header, struct serbe
 
 	// musicScore
 	if ((header.cmd & 0x4) == 0x4) {
-		flg = readStruct(sock, score_header, sizeof(*score_header));
-		if (flg != 1) return 1;
+		flg = pthread_mutex_trylock(&global_score_mutex);
+		if (flg != 0) return 1;
 
-		score_header->length = ntohs(score_header->length);
-		size_t size = sizeof(struct serbeep_score_note) * score_header->length;
-		*score_notes = (struct serbeep_score_note *)malloc(size);
-		if (*score_notes == NULL) {
-			fprintf(stderr, "fail...malloc(%zd bytes)\n", size);
+		flg = readStruct(sock, &global_score_header, sizeof(global_score_header));
+		if (flg != 1) {
+			pthread_mutex_unlock(&global_score_mutex);
 			return 1;
 		}
 
-		flg = readStruct(sock, *score_notes, size);
-		if (flg != 1) return 2;
+		global_score_header.length = ntohs(global_score_header.length);
+		size_t size = sizeof(struct serbeep_score_note) * global_score_header.length;
+		global_score_notes = (struct serbeep_score_note *)malloc(size);
+		if (global_score_notes == NULL) {
+			fprintf(stderr, "fail...malloc(%zd bytes)\n", size);
+			pthread_mutex_unlock(&global_score_mutex);
+			return 1;
+		}
+
+		flg = readStruct(sock, global_score_notes, size);
+		if (flg != 1) {
+			freeNull(global_score_notes);
+			pthread_mutex_unlock(&global_score_mutex);
+			return 1;
+		}
 
 		// musicAck
 		header.cmd = 0x8;
 		flg = writeStruct(sock, &header, sizeof(header));
-		if (flg != 1) return 2;
+		if (flg != 1) {
+			freeNull(global_score_notes);
+			pthread_mutex_unlock(&global_score_mutex);
+			return 1;
+		}
+
+		pthread_mutex_unlock(&global_score_mutex);
 	}
 
 	return 0;	// Success
 }
 
 
-int main(int argc, char *argv[])
+/* Thread */
+void tcpListener(void *args)
 {
-	// Music
-	struct serbeep_score_header score_header;
-	struct serbeep_score_note *score_notes;
-
-	// UDP
-	struct sockaddr_in udp_addr;
-	int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-	udp_addr.sin_family = AF_INET;
-	udp_addr.sin_port = htons(PORT);
-	udp_addr.sin_addr.s_addr = INADDR_ANY;
-	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
-
-	// TCP
 	struct sockaddr_in addr;
 	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
 	addr.sin_family = AF_INET;
@@ -217,28 +242,50 @@ int main(int argc, char *argv[])
 		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// 直しまくる
 
 		while (1) {
-			int flg = tcpHandler(sock, &score_header, &score_notes);
-			if (flg == 0) continue;
-			if (flg == 2) free(score_notes);
-			break;
+			int flg = tcpHandler(sock);
+			if (flg == 1) break;
 		}
 
 		close(sock);
 		break;	// imadake
 	}
+}
 
-	printf("Length = %u\n", score_header.length);
+void udpListener(void *args)
+{
+	struct sockaddr_in udp_addr;
+	int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+	udp_addr.sin_family = AF_INET;
+	udp_addr.sin_port = htons(PORT);
+	udp_addr.sin_addr.s_addr = INADDR_ANY;
+	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
 
-	// Beep
-	int fd = open("/dev/tty0", O_WRONLY);
-	//readStruct(udp_sock,
+	pthread_t play_thread;
 	printf("START> ");
 	getchar();
 
-	playNotes(fd, score_notes, (int)score_header.length);
+	if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)NULL) != 0 || pthread_join(play_thread, NULL) != 0) {
+		perror("Play Thread");
+		return;	// 直す
+	}
+}
 
-	close(fd);
-	free(score_notes);	// 気を付ける、二重free、NULLいれておく
+
+int main(int argc, char *argv[])
+{
+	// Thread
+	pthread_t tcp_thread;
+	if (pthread_create(&tcp_thread, NULL, (void *)tcpListener, (void *)NULL) != 0 || pthread_join(tcp_thread, NULL) != 0) {
+		perror("TCP Thread");
+		return EXIT_FAILURE;
+	}
+
+	pthread_t udp_thread;
+	if (pthread_create(&udp_thread, NULL, (void *)udpListener, (void *)NULL) != 0 || pthread_join(udp_thread, NULL) != 0) {
+		perror("UDP Thread");
+		return EXIT_FAILURE;
+	}
+
 	return 0;
 }
 

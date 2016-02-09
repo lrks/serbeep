@@ -1,5 +1,5 @@
 all:
-	gcc serbeep.c -lrt -lm -Wall
+	gcc serbeep.c -lrt -lm -lpthread -Wall
 
 scp:
 	scp -i /home/mrks/.ssh/id_rsa a.out 10.11.38.219:/home/mrks/a.out
