@@ -168,6 +168,7 @@ int msgHandler(int sock)
 		return 1;
 	}
 
+	// Todo: コマンドを変える(最下位ビットをReq/Resで立てたり立てなかったりにする)
 	// clientHello
 	if ((header.cmd & 0x1) == 0x1) {
 		// serverHello
@@ -225,17 +226,13 @@ void tcpListener(void *args)
 	int optval = 1;
 	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 	bind(sock0, (struct sockaddr *)&addr, sizeof(addr));
-	listen(sock0, BACKLOG);
+	listen(sock0, BACKLOG);	// Todo: この辺のエラー処理
 
 	while (1) {
 		struct sockaddr_in client;
 		socklen_t socklen = sizeof(client);
-		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// 直しまくる
-
-		while (1) {
-			if (msgHandler(sock) == 1) break;
-		}
-
+		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// Todo: エラー処理
+		while (msgHandler(sock) == 0);
 		close(sock);
 	}
 }
@@ -247,17 +244,17 @@ void udpListener(void *args)
 	udp_addr.sin_family = AF_INET;
 	udp_addr.sin_port = htons(PORT);
 	udp_addr.sin_addr.s_addr = INADDR_ANY;
-	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));
+	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));	// Todo: この辺エラー処理
 
 	pthread_t play_thread;
 
 	while (1) {
-		printf("START> ");
+		printf("START> ");	// Todo: Socketから読む
 		getchar();
 
 		if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)NULL) != 0 || pthread_join(play_thread, NULL) != 0) {
 			perror("Play Thread");
-			return;	// 直す
+			return;	// Todo: 直す
 		}
 	}
 }
