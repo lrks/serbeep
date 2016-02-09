@@ -10,174 +10,226 @@
 #include <math.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 
+#define	MAGIC	'\a'
+#define	PORT	25252
+#define	BACKLOG	5
 #define	NANONANO	1000000000
 #define CLOCK_TICK_RATE 1193180
 
-typedef struct _music {
-	int val;
-	time_t sec;
-	long nsec;
-} Music;
+/* struct */
+struct serbeep_header {
+	uint8_t magic;
+	uint8_t cmd;
+};
 
-/*
-   独自プロトコルに沿って送られてきた楽譜を構造体に変換する
+struct serbeep_score_header {
+	uint16_t length;
+};
 
-            1 byte            N byte(s)       N byte(s)
-   +----------------------+--------------+----------------+
-   |  flag | MIDI-NoteNo  |  Length[ms]  |  Duration[ms]  |
-   +----------------------+--------------+----------------+
-               flag = (Length > 0xff) or (Duration > 0xff);
-                                          N = flag ? 2 : 1;
+struct serbeep_score_note {
+	uint16_t number;
+	uint16_t length;
+	uint16_t duration;
+};
 
-   * flag は 1bit、MIDI-NoteNo は MIDI規格をそのまま利用(7bit)
-   * Length == 0 が終端
-     * Duration は存在しない
-     * [flag | MIDI-NoteNo] や その前の Duration の値は利用していない
-     * 2 ~ 3 Bytes は無駄になる
-   * 65535[ms] より大きい値は 65535[ms] になる
-*/
-Music *recvMusic(int sock, Music *dst, int *size)
+
+/* beep */
+void goodSleep(struct timespec *end, uint16_t ms)
 {
-	uint8_t *p, byte;
-	uint16_t beep_time, sleep_time;
-	int width, idx = 0, length = 0;
+	double time = (double)ms / (double)1000;
 
-	while (read(sock, &byte, 1) > 0) {	// これ 1byte ずつ読んだら遅いんじゃ...
-		if (length >= *size) {
-			*size *= 2;
-			dst = (Music *)realloc(dst, sizeof(Music) * *size);
-		}
+	time_t sec = (time_t)sec;
+	long nsec = (long)((time - sec) * NANONANO);
 
-		// Note
-		if (idx == 0) {
-			width = ((byte & 0x80) == 0x80) ? 2 : 1;
-			double freq = 440 * pow(2, (double)((byte & 0x7f) - 69) / (double)12);
+	end->tv_sec += sec;
+	end->tv_nsec += nsec;
+	end->tv_sec += end->tv_nsec / NANONANO;
+	end->tv_nsec = end->tv_nsec % NANONANO;
 
-			idx++;
-			dst[length].val = (int)(CLOCK_TICK_RATE / freq);
-			continue;
-		}
+	struct timespec now, req;
+	clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
-		// Beep time
-		double sec = 0;
-		int type = (idx - 1) / width;
-		if (type == 0) {
-			p = (uint8_t *)&beep_time;
+	req.tv_sec = end->tv_sec - now.tv_sec;
+	req.tv_nsec = end->tv_nsec - now.tv_nsec;
 
-			if (width == 1) {
-				p[0] = 0x0;
-				p[1] = byte;
-			} else {
-				p[idx - 1] = byte;
-			}
-
-			if (idx++ != (width * 1)) continue;
-			if (beep_time == 0) {
-				*size = length - 1;
-				return dst;
-			}
-			sec = (double)ntohs(beep_time) / (double)1000;
-		}
-
-		// Sleep time
-		if (type == 1) {
-			p = (uint8_t *)&sleep_time;
-
-			if (width == 1) {
-				p[0] = 0x0;
-				p[1] = byte;
-			} else {
-				p[idx - 3] = byte;
-			}
-
-			if (idx++ != (width * 2)) continue;
-
-			idx = 0;
-			dst[length].val = 0;
-			sec = (double)ntohs(sleep_time) / (double)1000;
-		}
-
-		dst[length].sec = (time_t)sec;
-		dst[length].nsec = (long)((sec - dst[length].sec) * NANONANO);
-		length++;
+	while (req.tv_nsec < 0) {
+		req.tv_sec--;
+		req.tv_nsec += NANONANO;
 	}
 
-	return NULL;
+	if (req.tv_sec < 0) return;
+
+	double a = time;
+	double b = req.tv_sec + ((double)req.tv_nsec / (double)NANONANO);
+	printf("ERR: %f[ms]\n", (a - b) * 1000);
+	nanosleep(&req, NULL);
 }
 
-/*
-   構造体のデータを演奏する
-*/
-int playMusic(int fd, Music *music, int length)
+void playNotes(int fd, struct serbeep_score_note *notes, int length)
 {
+	int i;
 	struct timespec end;
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
-	int i;
 	for (i=0; i<length; i++) {
-		Music *p = &music[i];
+		uint16_t number = ntohs(notes[i].number);
+		uint16_t beep_time = ntohs(notes[i].length);
+		uint16_t sleep_time = ntohs(notes[i].length);
 
-		end.tv_sec += p->sec;
-		end.tv_nsec += p->nsec;
-		end.tv_sec += end.tv_nsec / NANONANO;
-		end.tv_nsec = end.tv_nsec % NANONANO;
+		// Beep
+		if (beep_time != 0) {
+			double freq = 440 * pow(2, (double)(number - 69) / (double)12);
+			int val = (int)(CLOCK_TICK_RATE / freq);
 
-		struct timespec now, req;
-		clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-
-		req.tv_sec = end.tv_sec - now.tv_sec;
-		req.tv_nsec = end.tv_nsec - now.tv_nsec;
-
-		while (req.tv_nsec < 0) {
-			req.tv_sec--;
-			req.tv_nsec += NANONANO;
+			ioctl(fd, KIOCSOUND, val);
+			goodSleep(&end, beep_time);
+			ioctl(fd, KIOCSOUND, 0);
 		}
 
-		double a = p->sec + ((double)p->nsec / (double)NANONANO);
-		double b = req.tv_sec + ((double)req.tv_nsec / (double)NANONANO);
-
-		printf("%f\t%f\t%f\n", a, b, (a - b) * 1000);
-
-		if (req.tv_sec >= 0) {
-			if (p->val != 0) {
-				ioctl(fd, KIOCSOUND, p->val);
-				nanosleep(&req, NULL);
-				ioctl(fd, KIOCSOUND, 0);
-			} else {
-				nanosleep(&req, NULL);
-			}
+		// Sleep
+		if (sleep_time != 0) {
+			goodSleep(&end, sleep_time);
 		}
 	}
+}
 
-	return 0;
+
+/* TCP */
+int readStruct(int sock, void *struct_pointer, size_t size)
+{
+	size_t n = 0;
+	uint8_t *p = (uint8_t *)struct_pointer;
+
+	while (n < size) {
+		ssize_t len = read(sock, p+n, size-n);
+
+		switch (len) {
+		case -1:
+			perror("readStruct()");
+			return -1;
+		case 0:
+			//fprintf(stderr, "EOF\n");
+			return 0;
+		}
+
+		n += len;
+	}
+
+	return 1;
+}
+
+int writeStruct(int sock, void *struct_pointer, size_t size)
+{
+	size_t n = 0;
+	uint8_t *p = (uint8_t *)struct_pointer;
+
+	while (n < size) {
+		ssize_t len = write(sock, p+n, size-n);
+
+		switch (len) {
+		case -1:
+			perror("writeStruct()");
+			return -1;
+		case 0:
+			fprintf(stderr, "something happened\n");
+			return 0;
+		}
+
+		n += len;
+	}
+
+	return 1;
 }
 
 
 int main(int argc, char *argv[])
 {
-	/* Recv */
-	int length = 256;
-	Music *p = (Music *)malloc(sizeof(Music) * length);
-	int sock = open("music.bin", O_RDONLY);
-	p = recvMusic(sock, p, &length);
-	close(sock);
+	// Music
+	struct serbeep_score_header score_header;
+	struct serbeep_score_note *score_notes;
 
+	// TCP
+	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
 
-	/* Pre-process */
+	struct sockaddr_in addr;
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(PORT);
+	addr.sin_addr.s_addr = INADDR_ANY;
+
+	int optval = 1;
+	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+	bind(sock0, (struct sockaddr *)&addr, sizeof(addr));
+	listen(sock0, BACKLOG);
+
+	while (1) {
+		struct sockaddr_in client;
+		socklen_t socklen = sizeof(client);
+		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);
+
+	read_header:;
+		// Read header
+		struct serbeep_header header;
+		int flg = readStruct(sock, &header, sizeof(struct serbeep_header));
+		if (flg != 1) goto next;
+		if (header.magic != MAGIC) {
+			fprintf(stderr, "Invalid magic\n");
+			goto next;
+		}
+
+		// clientHello
+		if ((header.cmd & 0x1) == 0x1) {
+			// serverHello
+			header.cmd = 0x2;
+			flg = writeStruct(sock, &header, sizeof(header));
+			if (flg != 1) goto next;
+		}
+
+		// musicScore
+		if ((header.cmd & 0x4) == 0x4) {
+			flg = readStruct(sock, &score_header, sizeof(score_header));
+			if (flg != 1) goto next;
+
+			score_header.length = ntohs(score_header.length);
+			size_t size = sizeof(struct serbeep_score_note) * score_header.length;
+			score_notes = (struct serbeep_score_note *)malloc(size);
+			if (score_notes == NULL) {
+				fprintf(stderr, "fail...malloc(%zd bytes)\n", size);
+				goto next;
+			}
+
+			flg = readStruct(sock, score_notes, size);
+			if (flg != 1) {
+				free(score_notes);
+				goto next;
+			}
+
+			// musicAck
+			header.cmd = 0x8;
+			flg = writeStruct(sock, &header, sizeof(header));
+			if (flg != 1) {
+				free(score_notes);
+				goto next;
+			}
+		}
+
+		goto read_header;
+	next:
+		close(sock);
+		break;	// imadake
+	}
+
+	printf("Length = %u\n", score_header.length);
+
+	// Beep
 	int fd = open("/dev/tty0", O_WRONLY);
 	printf("START> ");
 	getchar();
 
+	playNotes(fd, score_notes, (int)score_header.length);
 
-	/* Play */
-	playMusic(fd, p, length);
-
-
-	/* Post-process */
 	close(fd);
-	free(p);
-
 	return 0;
 }
 
