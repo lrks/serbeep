@@ -55,3 +55,26 @@ legend("topleft", legend=c("noload", "load"), col=c("red", "blue"), pch = 1)
 title("exec -> ioctl/nanosleep (TurboBoost off)")
 graphics.off()
 
+x1 <- read.table('../original.dat')
+x2 <- read.table('serbeep-load-02.dat')
+x3 <- read.table('serbeep-load-03.dat')
+x4 <- read.table('serbeep-load-04.dat')
+
+x2 <- cbind(x1[1:1], (x2 - x1)[2:2])
+x3 <- cbind(x1[1:1], (x3 - x1)[2:2])
+x4 <- cbind(x1[1:1], (x4 - x1)[2:2])
+
+xrange = c(min(x1[1:1]), max(x1[1:1]))
+yrange = c(min(x2[2:2], x3[2:2], x4[2:2]), max(x2[2:2], x3[2:2], x4[2:2]))
+
+png('serbeep.png')
+plot(x2, col="red", xlim=xrange, ylim=yrange, xlab="", ylab="")
+par(new=T)
+plot(x3, col="blue", xlim=xrange, ylim=yrange, xlab="", ylab="")
+par(new=T)
+plot(x4, col="green", xlim=xrange, ylim=yrange, xlab="Note", ylab="ms")
+
+legend("topright", legend=c("Server A", "Server B", "Server C"), col=c("red", "blue", "green"), pch = 1)
+title("serbeep(load)")
+graphics.off()
+

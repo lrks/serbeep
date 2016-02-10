@@ -76,8 +76,7 @@ void goodSleep(struct timespec *end, uint16_t ms)
 
 void playNotes(void *args)
 {
-	struct timespec end;
-	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	struct timespec *end = (struct timespec *)args;
 
 	if (pthread_mutex_trylock(&global_score_mutex) != 0) return;
 	int i, fd = open("/dev/tty0", O_WRONLY);
@@ -95,16 +94,17 @@ void playNotes(void *args)
 			int val = (int)(CLOCK_TICK_RATE / freq);
 
 			ioctl(fd, KIOCSOUND, val);
-			goodSleep(&end, beep_time);
+			goodSleep(end, beep_time);
 			ioctl(fd, KIOCSOUND, 0);
 		}
 
 		// Sleep
 		if (sleep_time != 0) {
-			goodSleep(&end, sleep_time);
+			goodSleep(end, sleep_time);
 		}
 	}
 
+	free(end);
 	freeNull(global_score_notes);
 	pthread_mutex_unlock(&global_score_mutex);
 	close(fd);
@@ -158,9 +158,19 @@ int writeStruct(int sock, void *struct_pointer, size_t size)
 	return 1;
 }
 
+int readHeader(int sock, struct serbeep_header *header)
+{
+	if (readStruct(sock, header, sizeof(*header)) != 1) return 1;
+	if (header->magic != MAGIC) return 1;
+	if ((header->cmd & 0x1) == 0x1) return 1;
+
+	return 0;
+}
+
 int msgHandler(int sock)
 {
 	// Header
+	// Todo: readHeaderに任せる
 	struct serbeep_header header;
 	if (readStruct(sock, &header, sizeof(header)) != 1) return 1;
 	if (header.magic != MAGIC) {
@@ -224,8 +234,8 @@ void tcpListener(void *args)
 	addr.sin_addr.s_addr = INADDR_ANY;
 
 	int optval = 1;
-	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 	bind(sock0, (struct sockaddr *)&addr, sizeof(addr));
+	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 	listen(sock0, BACKLOG);	// Todo: この辺のエラー処理
 
 	while (1) {
@@ -235,6 +245,8 @@ void tcpListener(void *args)
 		while (msgHandler(sock) == 0);
 		close(sock);
 	}
+
+	close(sock0);
 }
 
 void udpListener(void *args)
@@ -244,17 +256,27 @@ void udpListener(void *args)
 	udp_addr.sin_family = AF_INET;
 	udp_addr.sin_port = htons(PORT);
 	udp_addr.sin_addr.s_addr = INADDR_ANY;
+
+	int optval = 1;
 	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));	// Todo: この辺エラー処理
+	setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
 	pthread_t play_thread;
-
 	while (1) {
-		printf("START> ");	// Todo: Socketから読む
-		getchar();
+		struct serbeep_header header;
+		if (readHeader(udp_sock, &header) == 1) continue;
 
-		if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)NULL) != 0 || pthread_join(play_thread, NULL) != 0) {
-			perror("Play Thread");
-			return;	// Todo: 直す
+		// Start
+		if ((header.cmd & 0x2) == 0x2) {
+			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));
+			if (end == NULL) return;	// Todo: 直す
+			clock_gettime(CLOCK_MONOTONIC_RAW, end);
+
+			if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)end) != 0) {
+				perror("Play Thread");
+				return;	// Todo: 直す
+			}
+			pthread_detach(play_thread);
 		}
 	}
 }

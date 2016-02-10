@@ -121,6 +121,7 @@ def musicAck(sock):
 	return flg
 
 if __name__ == '__main__':
+	brd_addr = '10.11.39.255'
 	hosts = [
 		'10.11.36.225',
 		'10.11.38.219',
@@ -149,9 +150,9 @@ if __name__ == '__main__':
 		print ""
 		sock.close()
 
-	#for host in hosts:
-
-
-
-
+	print "UDP"
+	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+	sock.sendto(struct.pack('>B', MAGIC) + struct.pack('>B', 0x2), (brd_addr, port))
+	sock.close()
 
