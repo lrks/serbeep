@@ -19,6 +19,7 @@ def removeTrack(mid, tid):
 	return tmp
 
 def mid2pack(mid):
+	top = 0
 	lst = []
 
 	for msg in mid:
@@ -27,6 +28,7 @@ def mid2pack(mid):
 
 		if len(lst) == 0:
 			if msg.type != 'note_on': continue
+			top = msg.time
 			lst.append(['on', msg.note, msg.channel, 0])
 			continue
 
@@ -57,6 +59,15 @@ def mid2pack(mid):
 
 	pack = b''
 	length = 0
+
+	if top != 0:
+		length += 1
+		t = int(top * 1000)
+		if t > 65535: t = 65535
+		pack += struct.pack('>H', 0)
+		pack += struct.pack('>H', 0)
+		pack += struct.pack('>H', t)
+
 	for i in range(0, len(lst), 2):
 		length += 1
 		if length > 65535: break
