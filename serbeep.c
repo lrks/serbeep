@@ -18,6 +18,7 @@
 #define	BACKLOG	5
 #define	NANONANO	1000000000
 #define CLOCK_TICK_RATE 1193180
+#define	DEVICE_CONSOLE	"/dev/tty0"
 
 /* struct */
 struct serbeep_header {
@@ -41,14 +42,23 @@ struct serbeep_score_header global_score_header;
 struct serbeep_score_note *global_score_notes = NULL;
 pthread_mutex_t global_score_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+int global_play_state = 0;
+pthread_mutex_t global_play_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 /* utility */
 #define	freeNull(ptr)	free(ptr);ptr = NULL;
 
 
 /* beep */
-void goodSleep(struct timespec *end, uint16_t ms)
+int goodSleep(struct timespec *end, uint16_t ms)
 {
+	// OKIRU
+	if (pthread_mutex_lock(&global_play_mutex) != 0) return 1;
+	if (global_play_state != 1) return 1;
+	pthread_mutex_unlock(&global_play_mutex);
+
+	// NERU
 	double time = (double)ms / (double)1000;
 
 	time_t sec = (time_t)time;
@@ -70,8 +80,10 @@ void goodSleep(struct timespec *end, uint16_t ms)
 		req.tv_nsec += NANONANO;
 	}
 
-	if (req.tv_sec < 0) return;
+	if (req.tv_sec < 0) return 0;
 	nanosleep(&req, NULL);
+
+	return 0;
 }
 
 void playNotes(void *args)
@@ -84,7 +96,7 @@ void playNotes(void *args)
 		return;
 	}
 
-	int i, fd = open("/dev/tty0", O_WRONLY);
+	int i, fd = open(DEVICE_CONSOLE, O_WRONLY);
 	int length = (int)global_score_header.length;
 	struct serbeep_score_note *notes = global_score_notes;
 
@@ -99,13 +111,13 @@ void playNotes(void *args)
 			int val = (int)(CLOCK_TICK_RATE / freq);
 
 			ioctl(fd, KIOCSOUND, val);
-			goodSleep(end, beep_time);
+			if (goodSleep(end, beep_time) == 1) break;
 			ioctl(fd, KIOCSOUND, 0);
 		}
 
 		// Sleep
 		if (sleep_time != 0) {
-			goodSleep(end, sleep_time);
+			if (goodSleep(end, sleep_time) == 1) break;
 		}
 	}
 
@@ -273,6 +285,14 @@ void udpListener(void *args)
 
 		// Start
 		if ((header.cmd & 0x2) == 0x2) {
+			if (pthread_mutex_lock(&global_play_mutex) != 0) continue;
+			if (global_play_state == 1) {
+				pthread_mutex_unlock(&global_play_mutex);
+				continue;
+			}
+			global_play_state = 1;
+			pthread_mutex_unlock(&global_play_mutex);
+
 			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));	// playNotes 内で free している
 			if (end == NULL) continue;
 			clock_gettime(CLOCK_MONOTONIC_RAW, end);
@@ -288,7 +308,17 @@ void udpListener(void *args)
 
 		// End
 		if ((header.cmd & 0x4) == 0x4) {
-			fprintf(stderr, "(End)Unimplemented\n");
+			if (pthread_mutex_lock(&global_play_mutex) != 0) continue;
+			if (global_play_state == 0) {
+				pthread_mutex_unlock(&global_play_mutex);
+				continue;
+			}
+			global_play_state = 0;
+			pthread_mutex_unlock(&global_play_mutex);
+
+			int fd = open(DEVICE_CONSOLE, O_WRONLY);
+			ioctl(fd, KIOCSOUND, 0);
+			close(fd);
 			continue;
 		}
 	}
