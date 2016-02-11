@@ -2,9 +2,8 @@ import socket
 import struct
 import mido
 
-MAGIC = ord("\a")
-
-def removeJam(mid, tid):
+# MIDI Parser
+def removeTrack(mid, tid):
 	tmp = mido.MidiFile()
 
 	for i, track in enumerate(mid.tracks):
@@ -78,6 +77,20 @@ def mid2pack(mid):
 
 	return length, pack
 
+def dumpMidi(mid, num):
+	print mid
+
+	for i, track in enumerate(mid.tracks):
+		if (num is not None) and (i != num):
+			continue
+
+		print 'Track %d: %s' % (i, track.name)
+		for message in track:
+			print "\t", message
+
+
+# Serbeep
+MAGIC = ord("\a")
 
 def msg(flg):
 	return "Success" if flg else "Failure"
@@ -121,6 +134,7 @@ def musicAck(sock):
 	return flg
 
 if __name__ == '__main__':
+	# Addr
 	brd_addr = '10.11.39.255'
 	hosts = [
 		'10.11.36.225',
@@ -129,7 +143,19 @@ if __name__ == '__main__':
 	]
 	port = 25252
 
-	for host in hosts:
+	# MIDI
+	filename = "/home/mrks/koka.mid"
+	mid = mido.MidiFile(filename)
+	#dumpMidi(mid, None)
+	#exit()
+	tracks = [
+		range(len(mid.tracks)),
+		range(len(mid.tracks)),
+		range(len(mid.tracks)),
+	]
+
+	# Transport music
+	for (host, track) in zip(hosts, tracks):
 		print "Host", host
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		sock.connect((host, port))
@@ -139,20 +165,27 @@ if __name__ == '__main__':
 		assert serverHello(sock), "serverHello Error"
 
 		# Music
-		filename = "/home/mrks/koka.mid"
-		track = None
-
-		mid = mido.MidiFile(filename)
-		tmp = removeJam(mid, track)
-		assert musicScore(sock, mid), "musicScore Error"
+		rm_track = list(set(range(len(mid.tracks))).difference(set(track)))
+		tmp = removeTrack(mid, rm_track)
+		assert musicScore(sock, tmp), "musicScore Error"
 		assert musicAck(sock), "musicAck Error"
 
-		print ""
 		sock.close()
 
-	print "UDP"
-	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-	sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-	sock.sendto(struct.pack('>B', MAGIC) + struct.pack('>B', 0x2), (brd_addr, port))
-	sock.close()
+	# Control
+	print "Control"
+	while True:
+		cmd = raw_input('CMD> ')
+		msg = None
+		if cmd == 'start':
+			msg = 0x2
+		elif cmd == 'end':
+			msg = 0x4
+		else:
+			continue
+
+		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+		sock.sendto(struct.pack('>B', MAGIC) + struct.pack('>B', msg), (brd_addr, port))
+		sock.close()
 
