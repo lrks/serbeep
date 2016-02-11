@@ -96,7 +96,7 @@ def msg(flg):
 	return "Success" if flg else "Failure"
 
 def clientHello(sock):
-	data = struct.pack('>B', MAGIC) + struct.pack('>B', 0x1)
+	data = struct.pack('>B', MAGIC) + struct.pack('>B', 0x2)
 	length = sock.send(data)
 
 	flg = (length == 2)
@@ -108,7 +108,7 @@ def serverHello(sock):
 	magic = struct.unpack('>B', data[0])[0]
 	cmd = struct.unpack('>B', data[1])[0]
 
-	flg = (magic == MAGIC) and ((cmd & 0x2) == 0x2)
+	flg = (magic == MAGIC) and ((cmd & 0x3) == 0x3)
 	print 'Recv: serverHello', msg(flg)
 	return flg
 
@@ -129,7 +129,7 @@ def musicAck(sock):
 	magic = struct.unpack('>B', data[0])[0]
 	cmd = struct.unpack('>B', data[1])[0]
 
-	flg = (magic == MAGIC) and ((cmd & 0x8) == 0x8)
+	flg = (magic == MAGIC) and ((cmd & 0x5) == 0x5)
 	print 'Recv: musicAck', msg(flg)
 	return flg
 

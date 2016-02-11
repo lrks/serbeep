@@ -170,19 +170,17 @@ int readHeader(int sock, struct serbeep_header *header)
 int msgHandler(int sock)
 {
 	// Header
-	// Todo: readHeaderに任せる
 	struct serbeep_header header;
-	if (readStruct(sock, &header, sizeof(header)) != 1) return 1;
+	if (readHeader(sock, &header) != 0) return 1;
 	if (header.magic != MAGIC) {
 		fprintf(stderr, "Invalid magic\n");
 		return 1;
 	}
 
-	// Todo: コマンドを変える(最下位ビットをReq/Resで立てたり立てなかったりにする)
 	// clientHello
-	if ((header.cmd & 0x1) == 0x1) {
+	if ((header.cmd & 0x2) == 0x2) {
 		// serverHello
-		header.cmd = 0x2;
+		header.cmd |= 0x1;
 		if (writeStruct(sock, &header, sizeof(header)) != 1) return 1;
 	}
 
@@ -210,7 +208,7 @@ int msgHandler(int sock)
 		}
 
 		// musicAck
-		header.cmd = 0x8;
+		header.cmd |= 0x1;
 		if (writeStruct(sock, &header, sizeof(header)) != 1) {
 			freeNull(global_score_notes);
 			pthread_mutex_unlock(&global_score_mutex);
