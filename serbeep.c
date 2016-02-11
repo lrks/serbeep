@@ -79,6 +79,11 @@ void playNotes(void *args)
 	struct timespec *end = (struct timespec *)args;
 
 	if (pthread_mutex_trylock(&global_score_mutex) != 0) return;
+	if (global_score_notes == NULL) {
+		pthread_mutex_unlock(&global_score_mutex);
+		return;
+	}
+
 	int i, fd = open("/dev/tty0", O_WRONLY);
 	int length = (int)global_score_header.length;
 	struct serbeep_score_note *notes = global_score_notes;
@@ -182,6 +187,7 @@ int msgHandler(int sock)
 		// serverHello
 		header.cmd |= 0x1;
 		if (writeStruct(sock, &header, sizeof(header)) != 1) return 1;
+		return 0;
 	}
 
 	// musicScore
@@ -216,6 +222,7 @@ int msgHandler(int sock)
 		}
 
 		pthread_mutex_unlock(&global_score_mutex);
+		return 0;
 	}
 
 	return 0;	// Success
@@ -266,15 +273,23 @@ void udpListener(void *args)
 
 		// Start
 		if ((header.cmd & 0x2) == 0x2) {
-			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));
-			if (end == NULL) return;	// Todo: 直す
+			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));	// playNotes 内で free している
+			if (end == NULL) continue;
 			clock_gettime(CLOCK_MONOTONIC_RAW, end);
 
 			if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)end) != 0) {
 				perror("Play Thread");
-				return;	// Todo: 直す
+				free(end);
+				continue;
 			}
 			pthread_detach(play_thread);
+			continue;
+		}
+
+		// End
+		if ((header.cmd & 0x4) == 0x4) {
+			fprintf(stderr, "(End)Unimplemented\n");
+			continue;
 		}
 	}
 }
