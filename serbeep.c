@@ -92,6 +92,13 @@ int main(int argc, char *argv[])
 /*                               Network Thread                               */
 /*----------------------------------------------------------------------------*/
 int msgHandler(int sock);
+void tcpRxTxThread(void *args)
+{
+	int *sock = (int *)args;
+	while (msgHandler(*sock) == 0);
+	close(*sock);
+}
+
 void tcpListener(void *args)
 {
 	struct sockaddr_in addr;
@@ -109,8 +116,14 @@ void tcpListener(void *args)
 		struct sockaddr_in client;
 		socklen_t socklen = sizeof(client);
 		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// Todo: エラー処理
-		while (msgHandler(sock) == 0);
-		close(sock);
+
+		pthread_t rxtx_thread;
+		if (pthread_create(&rxtx_thread, NULL, (void *)tcpRxTxThread, (void *)&sock) != 0) {
+			perror("RxTx Thread");
+			close(sock);	// 通常は tcpRxTxThread 内で閉じる
+			continue;
+		}
+		pthread_detach(rxtx_thread);
 	}
 
 	close(sock0);
