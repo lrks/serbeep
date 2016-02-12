@@ -116,8 +116,7 @@ void tcpListener(void *args)
 	close(sock0);
 }
 
-int readHeader(int sock, struct serbeep_header *header);
-void playNotes(void *args);
+void msgHandlerUdp(int udp_sock);
 void udpListener(void *args)
 {
 	struct sockaddr_in udp_addr;
@@ -130,48 +129,8 @@ void udpListener(void *args)
 	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));	// Todo: この辺エラー処理
 	setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
-	pthread_t play_thread;
 	while (1) {
-		struct serbeep_header header;
-		if (readHeader(udp_sock, &header) == 1) continue;
-
-		// Start
-		if ((header.cmd & 0x2) == 0x2) {
-			if (pthread_mutex_lock(&global_play_mutex) != 0) continue;
-			if (global_play_state == 1) {
-				pthread_mutex_unlock(&global_play_mutex);
-				continue;
-			}
-			pthread_mutex_unlock(&global_play_mutex);
-
-			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));	// playNotes 内で free している
-			if (end == NULL) continue;
-			clock_gettime(CLOCK_MONOTONIC_RAW, end);
-
-			if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)end) != 0) {
-				perror("Play Thread");
-				free(end);
-				continue;
-			}
-			pthread_detach(play_thread);
-			continue;
-		}
-
-		// End
-		if ((header.cmd & 0x4) == 0x4) {
-			if (pthread_mutex_lock(&global_play_mutex) != 0) continue;
-			if (global_play_state == 0) {
-				pthread_mutex_unlock(&global_play_mutex);
-				continue;
-			}
-			global_play_state = 0;
-			pthread_mutex_unlock(&global_play_mutex);
-
-			int fd = open(DEVICE_CONSOLE, O_WRONLY);
-			ioctl(fd, KIOCSOUND, 0);
-			close(fd);
-			continue;
-		}
+		msgHandlerUdp(udp_sock);
 	}
 }
 
@@ -288,6 +247,52 @@ int msgHandler(int sock)
 	}
 
 	return 0;	// Success
+}
+
+void playNotes(void *args);
+void msgHandlerUdp(int udp_sock)
+{
+	struct serbeep_header header;
+	if (readHeader(udp_sock, &header) == 1) return;
+
+	// Start
+	if ((header.cmd & 0x2) == 0x2) {
+		if (pthread_mutex_lock(&global_play_mutex) != 0) return;
+		if (global_play_state == 1) {
+			pthread_mutex_unlock(&global_play_mutex);
+			return;
+		}
+		pthread_mutex_unlock(&global_play_mutex);
+
+		struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));	// playNotes 内で free している
+		if (end == NULL) return;
+		clock_gettime(CLOCK_MONOTONIC_RAW, end);
+
+		pthread_t play_thread;
+		if (pthread_create(&play_thread, NULL, (void *)playNotes, (void *)end) != 0) {
+			perror("Play Thread");
+			free(end);
+			return;
+		}
+		pthread_detach(play_thread);
+		return;
+	}
+
+	// End
+	if ((header.cmd & 0x4) == 0x4) {
+		if (pthread_mutex_lock(&global_play_mutex) != 0) return;
+		if (global_play_state == 0) {
+			pthread_mutex_unlock(&global_play_mutex);
+			return;
+		}
+		global_play_state = 0;
+		pthread_mutex_unlock(&global_play_mutex);
+
+		int fd = open(DEVICE_CONSOLE, O_WRONLY);
+		ioctl(fd, KIOCSOUND, 0);
+		close(fd);
+		return;
+	}
 }
 
 
