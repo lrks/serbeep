@@ -7,7 +7,7 @@ def removeTrack(mid, tid):
 	tmp = mido.MidiFile()
 
 	for i, track in enumerate(mid.tracks):
-		flg = (tid is None) or (i in tid)
+		flg = (tid is None) or (i not in tid)
 
 		new = mido.MidiTrack()
 		for msg in track:
@@ -17,6 +17,7 @@ def removeTrack(mid, tid):
 		tmp.tracks.append(new)
 
 	return tmp
+
 
 def mid2pack(mid):
 	top = 0
@@ -88,7 +89,7 @@ def mid2pack(mid):
 
 	return length, pack
 
-def dumpMidi(mid, num):
+def dumpMidi(mid, num=None):
 	print mid
 
 	for i, track in enumerate(mid.tracks):
@@ -103,25 +104,20 @@ def dumpMidi(mid, num):
 # Serbeep
 MAGIC = ord("\a")
 
-def msg(flg):
-	return "Success" if flg else "Failure"
-
 def clientHello(sock):
 	data = struct.pack('>B', MAGIC) + struct.pack('>B', 0x2)
 	length = sock.send(data)
 
-	flg = (length == 2)
-	print 'Send: clientHello', msg(flg)
-	return flg
+	print 'Send: clientHello'
+	return length == 2
 
 def serverHello(sock):
 	data = sock.recv(2)
 	magic = struct.unpack('>B', data[0])[0]
 	cmd = struct.unpack('>B', data[1])[0]
 
-	flg = (magic == MAGIC) and ((cmd & 0x3) == 0x3)
-	print 'Recv: serverHello', msg(flg)
-	return flg
+	print 'Recv: serverHello'
+	return (magic == MAGIC) and ((cmd & 0x3) == 0x3)
 
 def musicScore(sock, mid):
 	length, pack = mid2pack(mid)
@@ -131,26 +127,24 @@ def musicScore(sock, mid):
 	data += pack
 
 	l = sock.sendall(data)
-	flg = (l is None)
-	print 'Send: musicScore', msg(flg)
-	return flg
+	print 'Send: musicScore'
+	return (l is None)
 
 def musicAck(sock):
 	data = sock.recv(2)
 	magic = struct.unpack('>B', data[0])[0]
 	cmd = struct.unpack('>B', data[1])[0]
 
-	flg = (magic == MAGIC) and ((cmd & 0x5) == 0x5)
-	print 'Recv: musicAck', msg(flg)
-	return flg
+	print 'Recv: musicAck'
+	return (magic == MAGIC) and ((cmd & 0x5) == 0x5)
 
 if __name__ == '__main__':
 	# Addr
 	brd_addr = '10.11.39.255'
 	hosts = [
 		'10.11.36.225',
-		'10.11.38.219',
-		'10.11.36.222',
+#		'10.11.38.219',
+#		'10.11.36.222',
 	]
 	port = 25252
 
@@ -159,44 +153,43 @@ if __name__ == '__main__':
 	mid = mido.MidiFile(filename)
 	#dumpMidi(mid, None)
 	#exit()
-	tracks = [
-		range(len(mid.tracks)),
-		range(len(mid.tracks)),
-		range(len(mid.tracks)),
-	]
-
-	# Transport music
-	for (host, track) in zip(hosts, tracks):
-		print "Host", host
-		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		sock.connect((host, port))
-
-		# Hello
-		assert clientHello(sock), "clientHello Error"
-		assert serverHello(sock), "serverHello Error"
-
-		# Music
-		rm_track = list(set(range(len(mid.tracks))).difference(set(track)))
-		tmp = removeTrack(mid, rm_track)
-		assert musicScore(sock, tmp), "musicScore Error"
-		assert musicAck(sock), "musicAck Error"
-
-		sock.close()
 
 	# Control
-	print "Control"
+	tcpsock = {}
 	while True:
 		cmd = raw_input('CMD> ')
+
+		# TCP
+		if cmd == 'connect':
+			for host in hosts:
+				tcpsock[host] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+				tcpsock[host].connect((host, port))
+
+		if cmd == 'close':
+			for host in hosts:
+				tcpsock[host].close()
+
+		if cmd == 'hello':
+			for host in hosts:
+				assert clientHello(tcpsock[host]), "clientHello Error"
+				assert serverHello(tcpsock[host]), "serverHello Error"
+
+		if cmd == 'transport':
+			for host in hosts:
+				tmp = removeTrack(mid, None)
+				assert musicScore(tcpsock[host], tmp), "musicScore Error"
+				assert musicAck(tcpsock[host]), "musicAck Error"
+
+		# UDP
 		msg = None
 		if cmd == 'start':
 			msg = 0x2
-		elif cmd == 'end':
+		if cmd == 'end':
 			msg = 0x4
-		else:
-			continue
 
-		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-		sock.sendto(struct.pack('>B', MAGIC) + struct.pack('>B', msg), (brd_addr, port))
-		sock.close()
+		if msg is not None:
+			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+			sock.sendto(struct.pack('>B', MAGIC) + struct.pack('>B', msg), (brd_addr, port))
+			sock.close()
 

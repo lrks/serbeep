@@ -142,7 +142,6 @@ void udpListener(void *args)
 				pthread_mutex_unlock(&global_play_mutex);
 				continue;
 			}
-			global_play_state = 1;
 			pthread_mutex_unlock(&global_play_mutex);
 
 			struct timespec *end = (struct timespec *)malloc(sizeof(struct timespec));	// playNotes 内で free している
@@ -299,7 +298,10 @@ int goodSleep(struct timespec *end, uint16_t ms)
 {
 	// OKIRU
 	if (pthread_mutex_lock(&global_play_mutex) != 0) return 1;
-	if (global_play_state != 1) return 1;
+	if (global_play_state != 1) {
+		pthread_mutex_unlock(&global_play_mutex);
+		return 1;
+	}
 	pthread_mutex_unlock(&global_play_mutex);
 
 	// NERU
@@ -340,6 +342,12 @@ void playNotes(void *args)
 		return;
 	}
 
+	// Start
+	if (pthread_mutex_lock(&global_play_mutex) != 0) return;
+	global_play_state = 1;
+	pthread_mutex_unlock(&global_play_mutex);
+
+	// Play
 	int i, fd = open(DEVICE_CONSOLE, O_WRONLY);
 	int length = (int)global_score_header.length;
 	struct serbeep_score_note *notes = global_score_notes;
@@ -364,6 +372,11 @@ void playNotes(void *args)
 			if (goodSleep(end, sleep_time) == 1) break;
 		}
 	}
+
+	// End
+	pthread_mutex_lock(&global_play_mutex);
+	global_play_state = 0;
+	pthread_mutex_unlock(&global_play_mutex);
 
 	free(end);
 	freeNull(global_score_notes);
