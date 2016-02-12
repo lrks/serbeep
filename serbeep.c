@@ -20,7 +20,6 @@
 
 #define	MAGIC	'\a'
 #define	PORT	25252
-#define	BACKLOG	5
 #define	NANONANO	1000000000
 #define CLOCK_TICK_RATE 1193180
 #define	DEVICE_CONSOLE	"/dev/tty0"
@@ -103,19 +102,40 @@ void tcpListener(void *args)
 {
 	struct sockaddr_in addr;
 	int sock0 = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock0 == -1) {
+		perror("Socket");
+		return;
+	}
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(PORT);
 	addr.sin_addr.s_addr = INADDR_ANY;
 
+	if (bind(sock0, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+		perror("bind");
+		close(sock0);
+		return;
+	}
+
 	int optval = 1;
-	bind(sock0, (struct sockaddr *)&addr, sizeof(addr));
-	setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-	listen(sock0, BACKLOG);	// Todo: この辺のエラー処理
+	if (setsockopt(sock0, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
+		perror("setsocketopt");
+		close(sock0);
+		return;
+	}
+	if (listen(sock0, SOMAXCONN) == -1) {
+		perror("listen");
+		close(sock0);
+		return;
+	}
 
 	while (1) {
 		struct sockaddr_in client;
 		socklen_t socklen = sizeof(client);
-		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);	// Todo: エラー処理
+		int sock = accept(sock0, (struct sockaddr *)&client, &socklen);
+		if (sock == -1) {
+			perror("accept");
+			continue;
+		}
 
 		pthread_t rxtx_thread;
 		if (pthread_create(&rxtx_thread, NULL, (void *)tcpRxTxThread, (void *)&sock) != 0) {
@@ -134,17 +154,33 @@ void udpListener(void *args)
 {
 	struct sockaddr_in udp_addr;
 	int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+	if (udp_sock == -1) {
+		perror("socket(udp)");
+		return;
+	}
+
 	udp_addr.sin_family = AF_INET;
 	udp_addr.sin_port = htons(PORT);
 	udp_addr.sin_addr.s_addr = INADDR_ANY;
 
 	int optval = 1;
-	bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr));	// Todo: この辺エラー処理
-	setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+	if (bind(udp_sock, (struct sockaddr *)&udp_addr, sizeof(udp_addr)) == -1) {
+		perror("bind(udp)");
+		close(udp_sock);
+		return;
+	}
+
+	if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
+		perror("setsockopt(udp)");
+		close(udp_sock);
+		return;
+	}
 
 	while (1) {
 		msgHandlerUdp(udp_sock);
 	}
+
+	close(udp_sock);
 }
 
 
