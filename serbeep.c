@@ -17,6 +17,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <signal.h>
 
 #define	MAGIC	'\a'
 #define	PORT	25252
@@ -53,14 +54,33 @@ pthread_mutex_t global_score_mutex = PTHREAD_MUTEX_INITIALIZER;
 int global_play_state = 0;
 pthread_mutex_t global_play_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+sigset_t global_sigset;
+
 
 /*----------------------------------------------------------------------------*/
 /*                                    Main                                    */
 /*----------------------------------------------------------------------------*/
+void signalHandling(void *args);
 void tcpListener(void *args);
 void udpListener(void *args);
 int main(int argc, char *argv[])
 {
+	// Signal
+	if (sigemptyset(&global_sigset) == -1) return EXIT_FAILURE;
+	if (sigaddset(&global_sigset, SIGINT) == -1) return EXIT_FAILURE;
+	if (sigaddset(&global_sigset, SIGQUIT) == -1) return EXIT_FAILURE;
+	if (sigaddset(&global_sigset, SIGTERM) == -1) return EXIT_FAILURE;
+	if (sigaddset(&global_sigset, SIGKILL) == -1) return EXIT_FAILURE;
+	if (pthread_sigmask(SIG_BLOCK, &global_sigset, NULL) != 0) return EXIT_FAILURE;
+
+	pthread_t signal_thread;
+	if (pthread_create(&signal_thread, NULL, (void *)signalHandling, (void *)NULL) != 0) {
+		perror("Signal handling");
+		return EXIT_FAILURE;
+	}
+	pthread_detach(signal_thread);
+
+	// TCP and UDP
 	pthread_t tcp_thread;
 	if (pthread_create(&tcp_thread, NULL, (void *)tcpListener, (void *)NULL) != 0) {
 		perror("TCP Thread");
@@ -83,7 +103,25 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	return 0;
+	return EXIT_SUCCESS;
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*                               SIGnal handling                              */
+/*----------------------------------------------------------------------------*/
+void signalHandling(void *args)
+{
+	int signo;
+
+	while (1) {
+		if (sigwait(&global_sigset, &signo) != 0) continue;
+
+		int fd = open(DEVICE_CONSOLE, O_WRONLY);
+		ioctl(fd, KIOCSOUND, 0);
+		close(fd);
+		exit(0);
+	}
 }
 
 
@@ -337,6 +375,8 @@ void msgHandlerUdp(int udp_sock)
 		global_play_state = 0;
 		pthread_mutex_unlock(&global_play_mutex);
 
+		printf("OWARI\n");
+
 		int fd = open(DEVICE_CONSOLE, O_WRONLY);
 		ioctl(fd, KIOCSOUND, 0);
 		close(fd);
@@ -428,6 +468,7 @@ void playNotes(void *args)
 	}
 
 	// End
+	ioctl(fd, KIOCSOUND, 0);
 	pthread_mutex_lock(&global_play_mutex);
 	global_play_state = 0;
 	pthread_mutex_unlock(&global_play_mutex);
